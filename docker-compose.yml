@@ -1,0 +1,16 @@
+opennmspgsql:
+  image: onmspgsql
+  name: onmspgsql
+  volumes:
+    - ./postgresql/data:/data
+
+opennmsserver:
+  image: onmsserver
+  name: onmsserver
+  volumes:
+    - ./opennms/data:/data
+  ports:
+    - 0.0.0.0:8980:8980
+    - 0.0.0.0:8180:8180
+  links:
+    - opennmspgsql:db

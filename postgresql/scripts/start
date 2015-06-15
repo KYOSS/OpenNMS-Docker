@@ -1,0 +1,23 @@
+#!/bin/bash
+
+if ! [ -d ${PG_DATA} ]; then
+    mkdir -p ${PG_DATA}
+    mkdir -p ${PG_LOG}
+    touch ${PG_LOG}/stdout.log
+    chown ${PG_USER}:${PG_USER} ${PG_DATA} -R
+    chown ${PG_USER}:${PG_USER} ${PG_LOG} -R
+    su -l ${PG_USER} -c "initdb -E 'UTF-8' --pgdata='${PG_DATA}' --auth='ident'" >> "${PG_LOG}/stdout.log";
+    sed -i 's/\(peer\|ident\)$/trust/' "${PG_DATA}/pg_hba.conf";
+    echo "host   all             all              0/0                    md5" >> "${PG_DATA}/pg_hba.conf";
+    su -l ${PG_USER} -c "pg_ctl start -D '${PG_DATA}' -l '${PG_LOG}/stdout.log' -s -w";
+    psql -d template1 -U postgres -c "CREATE USER ${OPENNMS_DB_USER} WITH PASSWORD '${OPENNMS_DB_USER_PASSWORD}' SUPERUSER;";
+    psql -d template1 -U postgres -c "CREATE DATABASE opennms;";
+    psql -d template1 -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE ${OPENNMS_DB_NAME} to ${OPENNMS_DB_USER};";
+    /usr/sbin/install_iplike.sh -u opennms
+    su -l ${PG_USER} -c "pg_ctl stop -D '${PG_DATA}' -l '${PG_LOG}/stdout.log' -s -m immediate";
+    sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" "${PG_DATA}/postgresql.conf";
+fi
+chown ${PG_USER}:${PG_USER} ${PG_DATA} -R
+chown ${PG_USER}:${PG_USER} ${PG_LOG} -R
+
+exec supervisord -n -c /etc/supervisord.conf

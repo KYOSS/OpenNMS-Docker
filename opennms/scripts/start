@@ -1,0 +1,60 @@
+b#!/bin/bash
+
+config_db() {
+    echo "DATABASE: Setting up opennms-datasources.xml"
+    sed -i "s@jdbc:postgresql://[^:]*:[0-9]*/opennms@jdbc:postgresql://${DB_PORT_5432_TCP_ADDR}:${DB_PORT_5432_TCP_PORT}/opennms@g" /data/opennms/etc/opennms-datasources.xml
+    sed -i "s@jdbc:postgresql://[^:]*:[0-9]*/template1@jdbc:postgresql://${DB_PORT_5432_TCP_ADDR}:${DB_PORT_5432_TCP_PORT}/template1@g" /data/opennms/etc/opennms-datasources.xml
+    sed -i "s@password=\"\"@password=\"opennms\"@g" /data/opennms/etc/opennms-datasources.xml
+    sed -i "s@user-name=\"postgres\"@user-name=\"opennms\"@g" /data/opennms/etc/opennms-datasources.xml
+    /opt/opennms/bin/install -dis 
+}
+
+link_directories() {
+    echo "OPENNMS: Linking directories to data volume"
+    mkdir -p ${OPENNMS_DATA}
+    rm -f /opt/opennms/logs
+    rm -f /opt/opennms/share
+    mv /var/log/opennms /data/opennms/logs
+    mv /var/opennms /data/opennms/share
+    mv /opt/opennms/data /data/opennms/data
+    mv /opt/opennms/etc /data/opennms/etc
+    ln -s /data/opennms/data /opt/opennms/data
+    ln -s /data/opennms/share /opt/opennms/share
+    ln -s /data/opennms/logs /opt/opennms/logs
+    ln -s /data/opennms/etc /opt/opennms/etc
+}
+
+init_opennms() {
+    if [ ! -d ${OPENNMS_DATA}/data ]; then
+        link_directories
+    fi
+}
+
+IS_DB_RUNNING=0
+export PGPASSWORD=${OPENNMS_DB_USER_PASSWORD}
+while [ ${IS_DB_RUNNING} -eq 0 ]; do
+    echo "SELECT 'SUCCESS'" | psql -U${OPENNMS_DB_USER} -h ${DB_PORT_5432_TCP_ADDR} -p ${DB_PORT_5432_TCP_PORT} opennms -w | grep "SUCCESS" && IS_DB_RUNNING=1
+    sleep 3
+done
+unset PGPASSWORD
+
+if ! [ -d ${OPENNMS_DATA}/data ]; then
+    echo "INITIALIZING OpenNMS config for the first time"
+    init_opennms
+else
+    echo "STARTUP: Linking data directories"
+    rm -rf /opt/opennms/logs /opt/opennms/share /var/opennms /opt/opennms/data /opt/opennms/etc
+    ln -s /data/opennms/data /opt/opennms/data
+    ln -s /data/opennms/share /opt/opennms/share
+    ln -s /data/opennms/logs /opt/opennms/logs
+    ln -s /data/opennms/etc /opt/opennms/etc
+fi
+
+if [ "${INIT_CONFIG:=FALSE}" == "TRUE" ]; then
+    echo "REINITIALIZING OpenNMS config"
+    init_opennms
+fi
+
+config_db
+
+exec supervisord -n -c /etc/supervisord.conf
